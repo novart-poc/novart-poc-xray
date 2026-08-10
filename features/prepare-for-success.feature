@@ -1,12 +1,6 @@
-# The @KAN-5 tag right before "Feature:" links the Test created during
-# the feature import to Story KAN-5.
-#
-# IMPORTANT (one-time step): After this feature file has been imported
-# once via /api/v2/import/feature, Xray creates a new Test issue
-# (e.g. KAN-6). Please add that key here as an additional tag
-# (e.g. "@KAN-5 @KAN-6") so future feature imports update the same
-# Test instead of creating a new one, and so the execution import
-# references the correct Test.
+# The @KAN-5 tag right before "Feature:" links the Test to Story KAN-5.
+# On every CI run, this file is re-imported via /api/v2/import/feature,
+# which creates a brand new Test issue and links it to KAN-5 automatically.
 
 @KAN-5
 Feature: tests.com homepage

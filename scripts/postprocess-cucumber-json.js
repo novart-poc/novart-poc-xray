@@ -2,15 +2,15 @@
  * Prepares the JSON report produced by @cucumber/cucumber for the
  * Xray execution import (/api/v2/import/execution/cucumber):
  *
- *  - adds @{{XRAY_EXEC_KEY}} (Test Execution issue) as a tag
- *  - adds @{{XRAY_TEST_KEY}} (Test issue, e.g. KAN-6) as a tag,
- *    if set via env var (optional; if the feature file already
- *    contains the test key as a tag, this is just a safety net)
+ *  - adds @{{XRAY_EXEC_KEY}} (Test Execution issue, created fresh each run) as a tag
+ *  - adds @{{XRAY_TEST_KEY}} (Test issue, created fresh each run via the
+ *    feature import) as a tag
  *  - makes every error_message single-line, so the Tests panel in
  *    Jira doesn't crash on multi-line stack traces
  *
  * Usage: node scripts/postprocess-cucumber-json.js <path-to-json>
- * Requires env var XRAY_EXEC_KEY (required), XRAY_TEST_KEY (optional)
+ * Requires env vars XRAY_EXEC_KEY and XRAY_TEST_KEY (both required,
+ * both produced dynamically by earlier workflow steps)
  */
 
 const fs = require('fs');
@@ -22,6 +22,11 @@ const testKey = process.env.XRAY_TEST_KEY;
 
 if (!execKey) {
   console.error('Error: env var XRAY_EXEC_KEY is not set.');
+  process.exit(1);
+}
+
+if (!testKey) {
+  console.error('Error: env var XRAY_TEST_KEY is not set.');
   process.exit(1);
 }
 
@@ -54,12 +59,12 @@ let sanitizedCount = 0;
 for (const feature of report) {
   feature.tags = feature.tags || [];
   ensureTag(feature.tags, `@${execKey}`);
-  if (testKey) ensureTag(feature.tags, `@${testKey}`);
+  ensureTag(feature.tags, `@${testKey}`);
 
   for (const element of feature.elements || []) {
     element.tags = element.tags || [];
     ensureTag(element.tags, `@${execKey}`);
-    if (testKey) ensureTag(element.tags, `@${testKey}`);
+    ensureTag(element.tags, `@${testKey}`);
     taggedCount++;
 
     for (const step of element.steps || []) {
@@ -76,6 +81,6 @@ for (const feature of report) {
 fs.writeFileSync(inputPath, JSON.stringify(report, null, 2), 'utf8');
 
 console.log(
-  `OK: injected @${execKey}${testKey ? ' and @' + testKey : ''} into ${taggedCount} scenario(s), ` +
+  `OK: injected @${execKey} and @${testKey} into ${taggedCount} scenario(s), ` +
     `sanitized ${sanitizedCount} error_message(s) -> ${inputPath}`
 );
