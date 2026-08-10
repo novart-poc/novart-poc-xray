@@ -14,28 +14,25 @@ jobs:
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       XRAY_CLIENT_ID: ${{ secrets.XRAY_CLIENT_ID }}
       XRAY_CLIENT_SECRET: ${{ secrets.XRAY_CLIENT_SECRET }}
-      # Optional: Key des per Feature-Import erzeugten Test-Issues (z.B. KAN-6).
-      # Kann leer bleiben, wenn der Key bereits als Tag im Feature-File steht.
-      XRAY_TEST_KEY: ${{ secrets.XRAY_TEST_KEY }}
       JIRA_PROJECT_KEY: KAN
 
     steps:
-      - name: Code auschecken
+      - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Node.js einrichten
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      - name: Dependencies installieren
+      - name: Install dependencies
         run: npm ci
 
-      - name: Playwright Chromium installieren
+      - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Xray Cloud Auth-Token abrufen
+      - name: Get Xray Cloud auth token
         id: xray_auth
         run: |
           TOKEN=$(curl -s -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
@@ -43,13 +40,33 @@ jobs:
             -d "{\"client_id\": \"${XRAY_CLIENT_ID}\", \"client_secret\": \"${XRAY_CLIENT_SECRET}\"}" \
             | tr -d '"')
           if [ -z "$TOKEN" ]; then
-            echo "Xray-Authentifizierung fehlgeschlagen"
+            echo "Xray authentication failed"
             exit 1
           fi
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
-      - name: Test Execution Issue in Jira anlegen
+      # Every run imports the feature file fresh. This creates a brand new
+      # Test issue in Xray and links it to Story KAN-5 automatically via
+      # the @KAN-5 tag in the feature file. The response gives us the new
+      # test's key so we can tag the execution result with it later.
+      - name: Import feature file (creates a new Test, linked to KAN-5)
+        id: import_feature
+        run: |
+          RESPONSE=$(curl -s -X POST \
+            "https://xray.cloud.getxray.app/api/v2/import/feature?projectKey=${JIRA_PROJECT_KEY}" \
+            -H "Authorization: Bearer ${{ steps.xray_auth.outputs.token }}" \
+            -F "file=@features/prepare-for-success.feature")
+          echo "Feature import response: $RESPONSE"
+          TEST_KEY=$(echo "$RESPONSE" | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
+          if [ -z "$TEST_KEY" ]; then
+            echo "Could not determine the created Test key from the response above."
+            exit 1
+          fi
+          echo "Created Test: $TEST_KEY (linked to KAN-5)"
+          echo "test_key=$TEST_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Create Test Execution issue in Jira
         id: create_exec
         run: |
           RESPONSE=$(curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue" \
@@ -58,47 +75,48 @@ jobs:
             -d "{
               \"fields\": {
                 \"project\": { \"key\": \"${JIRA_PROJECT_KEY}\" },
-                \"summary\": \"Automatisierter Testlauf $(date -u +%Y-%m-%dT%H:%M:%S)Z (run #${GITHUB_RUN_NUMBER})\",
+                \"summary\": \"Automated test run $(date -u +%Y-%m-%dT%H:%M:%S)Z (run #${GITHUB_RUN_NUMBER})\",
                 \"issuetype\": { \"name\": \"Test Execution\" }
               }
             }")
-          echo "Jira-Antwort: $RESPONSE"
+          echo "Jira response: $RESPONSE"
           EXEC_KEY=$(echo "$RESPONSE" | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
           if [ -z "$EXEC_KEY" ]; then
-            echo "Konnte keine Test Execution anlegen, siehe Antwort oben."
+            echo "Failed to create a Test Execution, see response above."
             exit 1
           fi
-          echo "Angelegte Test Execution: $EXEC_KEY"
+          echo "Created Test Execution: $EXEC_KEY"
           echo "exec_key=$EXEC_KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Cucumber-Tests ausfuehren
+      - name: Run Cucumber tests
         id: run_tests
         run: npm test
         continue-on-error: true
 
-      - name: HTML Report generieren
+      - name: Generate HTML report
         run: npm run report:html
 
-      - name: Xray-Tags injizieren und error_message bereinigen
+      - name: Inject Xray tags and sanitize error_message
         env:
           XRAY_EXEC_KEY: ${{ steps.create_exec.outputs.exec_key }}
+          XRAY_TEST_KEY: ${{ steps.import_feature.outputs.test_key }}
         run: node scripts/postprocess-cucumber-json.js reports/cucumber-report.json
 
-      - name: JSON-Report nach Xray importieren
+      - name: Import JSON report into Xray
         run: |
           HTTP_STATUS=$(curl -s -o response.json -w "%{http_code}" \
             -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/cucumber" \
             -H "Authorization: Bearer ${{ steps.xray_auth.outputs.token }}" \
             -H "Content-Type: application/json" \
             --data @reports/cucumber-report.json)
-          echo "Xray Import HTTP Status: $HTTP_STATUS"
+          echo "Xray import HTTP status: $HTTP_STATUS"
           cat response.json
           if [ "$HTTP_STATUS" -ge 300 ]; then
-            echo "Xray-Import fehlgeschlagen"
+            echo "Xray import failed"
             exit 1
           fi
 
-      - name: Reports als Artefakte hochladen
+      - name: Upload reports as artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -108,8 +126,8 @@ jobs:
             reports/html-report/**
           retention-days: 30
 
-      - name: Job als fehlgeschlagen markieren, falls Tests fehlgeschlagen sind
+      - name: Fail the job if tests failed
         if: steps.run_tests.outcome == 'failure'
         run: |
-          echo "Cucumber-Tests sind fehlgeschlagen (Ergebnisse wurden trotzdem nach Xray importiert)."
+          echo "Cucumber tests failed (results were still imported into Xray)."
           exit 1
