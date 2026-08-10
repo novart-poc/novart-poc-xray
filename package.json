@@ -1,0 +1,20 @@
+{
+  "name": "novart-poc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright/Cucumber TypeScript Tests fuer novart-poc, Xray-Integration (KAN-5)",
+  "scripts": {
+    "test": "cucumber-js",
+    "report:html": "node scripts/generate-html-report.js",
+    "postprocess:xray": "node scripts/postprocess-cucumber-json.js"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^10.9.0",
+    "@playwright/test": "^1.47.0",
+    "@types/node": "^20.14.0",
+    "multiple-cucumber-html-reporter": "^3.7.1",
+    "playwright": "^1.47.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}

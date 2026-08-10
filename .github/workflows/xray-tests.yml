@@ -1,0 +1,115 @@
+name: Xray Cucumber Tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  test-and-import:
+    runs-on: ubuntu-latest
+    env:
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      XRAY_CLIENT_ID: ${{ secrets.XRAY_CLIENT_ID }}
+      XRAY_CLIENT_SECRET: ${{ secrets.XRAY_CLIENT_SECRET }}
+      # Optional: Key des per Feature-Import erzeugten Test-Issues (z.B. KAN-6).
+      # Kann leer bleiben, wenn der Key bereits als Tag im Feature-File steht.
+      XRAY_TEST_KEY: ${{ secrets.XRAY_TEST_KEY }}
+      JIRA_PROJECT_KEY: KAN
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Dependencies installieren
+        run: npm ci
+
+      - name: Playwright Chromium installieren
+        run: npx playwright install --with-deps chromium
+
+      - name: Xray Cloud Auth-Token abrufen
+        id: xray_auth
+        run: |
+          TOKEN=$(curl -s -X POST "https://xray.cloud.getxray.app/api/v2/authenticate" \
+            -H "Content-Type: application/json" \
+            -d "{\"client_id\": \"${XRAY_CLIENT_ID}\", \"client_secret\": \"${XRAY_CLIENT_SECRET}\"}" \
+            | tr -d '"')
+          if [ -z "$TOKEN" ]; then
+            echo "Xray-Authentifizierung fehlgeschlagen"
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Test Execution Issue in Jira anlegen
+        id: create_exec
+        run: |
+          RESPONSE=$(curl -s -X POST "${JIRA_BASE_URL}/rest/api/3/issue" \
+            -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"fields\": {
+                \"project\": { \"key\": \"${JIRA_PROJECT_KEY}\" },
+                \"summary\": \"Automatisierter Testlauf $(date -u +%Y-%m-%dT%H:%M:%S)Z (run #${GITHUB_RUN_NUMBER})\",
+                \"issuetype\": { \"name\": \"Test Execution\" }
+              }
+            }")
+          echo "Jira-Antwort: $RESPONSE"
+          EXEC_KEY=$(echo "$RESPONSE" | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
+          if [ -z "$EXEC_KEY" ]; then
+            echo "Konnte keine Test Execution anlegen, siehe Antwort oben."
+            exit 1
+          fi
+          echo "Angelegte Test Execution: $EXEC_KEY"
+          echo "exec_key=$EXEC_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Cucumber-Tests ausfuehren
+        id: run_tests
+        run: npm test
+        continue-on-error: true
+
+      - name: HTML Report generieren
+        run: npm run report:html
+
+      - name: Xray-Tags injizieren und error_message bereinigen
+        env:
+          XRAY_EXEC_KEY: ${{ steps.create_exec.outputs.exec_key }}
+        run: node scripts/postprocess-cucumber-json.js reports/cucumber-report.json
+
+      - name: JSON-Report nach Xray importieren
+        run: |
+          HTTP_STATUS=$(curl -s -o response.json -w "%{http_code}" \
+            -X POST "https://xray.cloud.getxray.app/api/v2/import/execution/cucumber" \
+            -H "Authorization: Bearer ${{ steps.xray_auth.outputs.token }}" \
+            -H "Content-Type: application/json" \
+            --data @reports/cucumber-report.json)
+          echo "Xray Import HTTP Status: $HTTP_STATUS"
+          cat response.json
+          if [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "Xray-Import fehlgeschlagen"
+            exit 1
+          fi
+
+      - name: Reports als Artefakte hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            reports/cucumber-report.json
+            reports/html-report/**
+          retention-days: 30
+
+      - name: Job als fehlgeschlagen markieren, falls Tests fehlgeschlagen sind
+        if: steps.run_tests.outcome == 'failure'
+        run: |
+          echo "Cucumber-Tests sind fehlgeschlagen (Ergebnisse wurden trotzdem nach Xray importiert)."
+          exit 1
