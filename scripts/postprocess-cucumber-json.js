@@ -1,17 +1,16 @@
 /**
- * Bereitet den von @cucumber/cucumber erzeugten JSON-Report fuer den
- * Xray-Execution-Import auf (/api/v2/import/execution/cucumber):
+ * Prepares the JSON report produced by @cucumber/cucumber for the
+ * Xray execution import (/api/v2/import/execution/cucumber):
  *
- *  - fuegt @{{XRAY_EXEC_KEY}} (Test Execution Issue) als Tag ein
- *  - fuegt @{{XRAY_TEST_KEY}} (Test Issue, z.B. KAN-6) als Tag ein,
- *    falls per Env-Var gesetzt (optional, falls das Feature-File den
- *    Test-Key bereits selbst als Tag enthaelt, ist dieser Schritt nur
- *    ein Sicherheitsnetz)
- *  - macht jede error_message einzeilig, damit das Tests-Panel in
- *    Jira nicht an mehrzeiligen Stacktraces abstuerzt
+ *  - adds @{{XRAY_EXEC_KEY}} (Test Execution issue) as a tag
+ *  - adds @{{XRAY_TEST_KEY}} (Test issue, e.g. KAN-6) as a tag,
+ *    if set via env var (optional; if the feature file already
+ *    contains the test key as a tag, this is just a safety net)
+ *  - makes every error_message single-line, so the Tests panel in
+ *    Jira doesn't crash on multi-line stack traces
  *
- * Aufruf: node scripts/postprocess-cucumber-json.js <pfad-zur-json>
- * Benoetigt Env-Var XRAY_EXEC_KEY (Pflicht), XRAY_TEST_KEY (optional)
+ * Usage: node scripts/postprocess-cucumber-json.js <path-to-json>
+ * Requires env var XRAY_EXEC_KEY (required), XRAY_TEST_KEY (optional)
  */
 
 const fs = require('fs');
@@ -22,12 +21,12 @@ const execKey = process.env.XRAY_EXEC_KEY;
 const testKey = process.env.XRAY_TEST_KEY;
 
 if (!execKey) {
-  console.error('Fehler: Env-Var XRAY_EXEC_KEY ist nicht gesetzt.');
+  console.error('Error: env var XRAY_EXEC_KEY is not set.');
   process.exit(1);
 }
 
 if (!fs.existsSync(inputPath)) {
-  console.error(`Fehler: Datei nicht gefunden: ${inputPath}`);
+  console.error(`Error: file not found: ${inputPath}`);
   process.exit(1);
 }
 
@@ -49,7 +48,7 @@ function ensureTag(tagsArray, tagName) {
 const raw = fs.readFileSync(inputPath, 'utf8');
 const report = JSON.parse(raw);
 
-let injectedCount = 0;
+let taggedCount = 0;
 let sanitizedCount = 0;
 
 for (const feature of report) {
@@ -61,7 +60,7 @@ for (const feature of report) {
     element.tags = element.tags || [];
     ensureTag(element.tags, `@${execKey}`);
     if (testKey) ensureTag(element.tags, `@${testKey}`);
-    injectedCount++;
+    taggedCount++;
 
     for (const step of element.steps || []) {
       if (step.result && typeof step.result.error_message === 'string') {
@@ -77,6 +76,6 @@ for (const feature of report) {
 fs.writeFileSync(inputPath, JSON.stringify(report, null, 2), 'utf8');
 
 console.log(
-  `OK: @${execKey}${testKey ? ' und @' + testKey : ''} in ${injectedCount} Szenario(s) injiziert, ` +
-    `${sanitizedCount} error_message(s) einzeilig gemacht -> ${inputPath}`
+  `OK: injected @${execKey}${testKey ? ' and @' + testKey : ''} into ${taggedCount} scenario(s), ` +
+    `sanitized ${sanitizedCount} error_message(s) -> ${inputPath}`
 );

@@ -1,35 +1,36 @@
 # novart-poc – Playwright/Cucumber + Xray Integration (KAN-5)
 
-Testet, dass "Prepare for Success" auf https://www.tests.com/ sichtbar ist,
-und importiert die Ergebnisse automatisch nach Jira/Xray Cloud (Projekt KAN).
+Tests that "Prepare for Success" is visible on https://www.tests.com/ and
+automatically imports the results into Jira/Xray Cloud (project KAN).
 
-## Lokal ausführen
+## Run locally
 
 ```bash
 npm install
 npx playwright install --with-deps chromium
-npm test              # erzeugt reports/cucumber-report.json
-npm run report:html   # erzeugt reports/html-report/index.html
+npm test              # produces reports/cucumber-report.json
+npm run report:html   # produces reports/html-report/index.html
 ```
 
-## Einmaliges Setup (vor dem ersten CI-Lauf)
+## One-time setup (before the first CI run)
 
-### 1. GitHub Secrets anlegen
-Unter **Settings → Secrets and variables → Actions** im Repo `novart-poc/novart-poc`:
+### 1. Create GitHub Secrets
+Under **Settings → Secrets and variables → Actions** in the
+`novart-poc/novart-poc` repo:
 
-| Secret               | Beschreibung                                      |
-|-----------------------|----------------------------------------------------|
-| `JIRA_BASE_URL`       | z. B. `https://euerdomain.atlassian.net`           |
-| `JIRA_EMAIL`          | E-Mail des Jira-Service-Accounts                   |
-| `JIRA_API_TOKEN`      | Jira API-Token des Service-Accounts                |
-| `XRAY_CLIENT_ID`      | Xray Cloud API Client ID                           |
-| `XRAY_CLIENT_SECRET`  | Xray Cloud API Client Secret                       |
-| `XRAY_TEST_KEY`       | *(optional, siehe Schritt 2)* z. B. `KAN-6`        |
+| Secret               | Description                                        |
+|-----------------------|-----------------------------------------------------|
+| `JIRA_BASE_URL`       | e.g. `https://yourdomain.atlassian.net`             |
+| `JIRA_EMAIL`          | Email of the Jira service account                   |
+| `JIRA_API_TOKEN`      | Jira API token of the service account                |
+| `XRAY_CLIENT_ID`      | Xray Cloud API client ID                             |
+| `XRAY_CLIENT_SECRET`  | Xray Cloud API client secret                         |
+| `XRAY_TEST_KEY`       | *(optional, see step 2)* e.g. `KAN-6`                |
 
-### 2. Test-Issue einmalig per Feature-Import erzeugen
+### 2. Create the Test issue once via feature import
 
-Da ihr das bereits erfolgreich getestet habt, einmalig ausführen (lokal oder
-via `curl`), um den Test-Issue zu KAN-5 zu erzeugen:
+Since you've already tested this successfully, run it once (locally or
+via `curl`) to create the Test issue linked to KAN-5:
 
 ```bash
 curl -H "Authorization: Bearer <XRAY_TOKEN>" \
@@ -37,42 +38,43 @@ curl -H "Authorization: Bearer <XRAY_TOKEN>" \
   "https://xray.cloud.getxray.app/api/v2/import/feature?projectKey=KAN"
 ```
 
-Die Antwort enthält den neu erzeugten Test-Key (z. B. `KAN-6`). Danach:
+The response contains the newly created Test key (e.g. `KAN-6`). Then:
 
-- Optional: `XRAY_TEST_KEY` als GitHub Secret mit diesem Wert anlegen
-  (der Import-Workflow injiziert ihn dann zusätzlich in den JSON-Report), **und/oder**
-- Empfohlen: den Tag direkt im Feature-File ergänzen, z. B.
-  `@KAN-5 @KAN-6` vor `Feature:`, damit künftige Feature-Importe denselben
-  Test aktualisieren statt einen neuen zu erzeugen.
+- Optional: add `XRAY_TEST_KEY` as a GitHub secret with that value
+  (the import workflow will additionally inject it into the JSON report), **and/or**
+- Recommended: add the tag directly in the feature file, e.g.
+  `@KAN-5 @KAN-6` before `Feature:`, so future feature imports update
+  the same Test instead of creating a new one.
 
-### 3. Push nach `main`
+### 3. Push to `main`
 
-Siehe Befehle unten.
+See the commands below.
 
-## Wie die Pipeline funktioniert (`.github/workflows/xray-tests.yml`)
+## How the pipeline works (`.github/workflows/xray-tests.yml`)
 
-1. Checkout, Node/Playwright-Setup, `npm ci`
-2. Xray-Auth-Token holen (`/api/v2/authenticate`)
-3. Neue **Test Execution** in Jira anlegen (`/rest/api/3/issue`, Issuetype
-   `Test Execution` im Projekt `KAN`) → liefert `exec_key`, z. B. `KAN-10`
-4. Cucumber-Tests ausführen → `reports/cucumber-report.json`
-   (Job läuft trotz Testfehlern weiter, damit Reporting/Import trotzdem passieren)
-5. HTML-Report erzeugen → `reports/html-report/`
+1. Checkout, Node/Playwright setup, `npm ci`
+2. Get an Xray auth token (`/api/v2/authenticate`)
+3. Create a new **Test Execution** in Jira (`/rest/api/3/issue`, issue type
+   `Test Execution` in project `KAN`) → returns `exec_key`, e.g. `KAN-10`
+4. Run the Cucumber tests → `reports/cucumber-report.json`
+   (the job continues even if tests fail, so reporting/import still happen)
+5. Generate the HTML report → `reports/html-report/`
 6. `scripts/postprocess-cucumber-json.js`:
-   - injiziert `@{{exec_key}}` und optional `@{{test_key}}` als Tags
-     direkt in den JSON-Report (Query-Parameter werden von Xray ignoriert,
-     die Tags müssen laut eurer Erfahrung im JSON selbst stehen)
-   - macht jede `error_message` einzeilig (verhindert Absturz des
-     Tests-Panels in Jira bei mehrzeiligen Stacktraces)
-7. JSON-Report per POST an `/api/v2/import/execution/cucumber`
-8. JSON + HTML Report als GitHub-Actions-Artefakt hochladen
-9. Job schlägt fehl, falls die Tests fehlgeschlagen sind (Import ist trotzdem passiert)
+   - injects `@{{exec_key}}` and optionally `@{{test_key}}` as tags
+     directly into the JSON report (query parameters are ignored by
+     Xray — per your experience the tags must live in the JSON itself)
+   - makes every `error_message` single-line (prevents the Tests panel
+     in Jira from crashing on multi-line stack traces)
+7. POST the JSON report to `/api/v2/import/execution/cucumber`
+8. Upload the JSON + HTML report as a GitHub Actions artifact
+9. The job fails if the tests failed (the import still happens regardless)
 
-**Hinweis / Annahme:** Der Workflow geht davon aus, dass im Jira-Projekt `KAN`
-ein Issuetype namens `Test Execution` existiert (Standard bei Xray Cloud).
-Falls der Name abweicht, in Schritt "Test Execution Issue anlegen" anpassen.
+**Note / assumption:** The workflow assumes that the `KAN` Jira project
+has an issue type called `Test Execution` (Xray Cloud's default). If the
+name differs in your instance, adjust it in the "Create Test Execution
+issue in Jira" step.
 
-## Dateien in diesem Paket
+## Files in this package
 
 ```
 package.json

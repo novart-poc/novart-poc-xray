@@ -17,8 +17,8 @@ report.generate({
   customData: {
     title: 'Run Info',
     data: [
-      { label: 'Projekt', value: 'novart-poc / Xray KAN-5' },
-      { label: 'Ausgefuehrt am', value: new Date().toISOString() }
+      { label: 'Project', value: 'novart-poc / Xray KAN-5' },
+      { label: 'Executed at', value: new Date().toISOString() }
     ]
   }
 });
