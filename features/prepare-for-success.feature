@@ -7,4 +7,4 @@ Feature: tests.com homepage
 
   Scenario: "Prepare for Success" is visible on the homepage
     Given I open the page "https://www.tests.com/"
-    Then the text "Prepare for Success" should be visible on the page
+    Then the text "Prepare for Success ERROR" should be visible on the page

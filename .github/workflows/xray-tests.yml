@@ -6,7 +6,7 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  test-and-import:
+  test-and-import-xray:
     runs-on: ubuntu-latest
     env:
       JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
