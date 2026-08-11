@@ -5,6 +5,6 @@
 @KAN-5 
 Feature: tests.com homepage
   @id:Version-2
-  Scenario: "Prepare for Success" is visible on the homepage
+  Scenario: "Prepare for Success" is visible on the homepage (Version-2)
     Given I open the page "https://www.tests.com/"
     Then the text "Prepare for Success Error" should be visible on the page
