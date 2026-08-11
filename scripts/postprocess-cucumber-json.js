@@ -5,8 +5,9 @@
  *  - adds @{{XRAY_EXEC_KEY}} (Test Execution issue, created fresh each run) as a tag
  *  - adds @{{XRAY_TEST_KEY}} (Test issue, created fresh each run via the
  *    feature import) as a tag
- *  - makes every error_message single-line, so the Tests panel in
- *    Jira doesn't crash on multi-line stack traces
+ *
+ * error_message is passed through unchanged (full text, including any
+ * multi-line stack trace).
  *
  * Usage: node scripts/postprocess-cucumber-json.js <path-to-json>
  * Requires env vars XRAY_EXEC_KEY and XRAY_TEST_KEY (both required,
@@ -35,15 +36,6 @@ if (!fs.existsSync(inputPath)) {
   process.exit(1);
 }
 
-/** @param {string} msg */
-function sanitizeErrorMessage(msg) {
-  return msg
-    .replace(/\r\n/g, ' ')
-    .replace(/\n/g, ' | ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function ensureTag(tagsArray, tagName) {
   if (!tagsArray.some((t) => t.name === tagName)) {
     tagsArray.push({ name: tagName });
@@ -54,7 +46,6 @@ const raw = fs.readFileSync(inputPath, 'utf8');
 const report = JSON.parse(raw);
 
 let taggedCount = 0;
-let sanitizedCount = 0;
 
 for (const feature of report) {
   feature.tags = feature.tags || [];
@@ -66,21 +57,11 @@ for (const feature of report) {
     ensureTag(element.tags, `@${execKey}`);
     ensureTag(element.tags, `@${testKey}`);
     taggedCount++;
-
-    for (const step of element.steps || []) {
-      if (step.result && typeof step.result.error_message === 'string') {
-        const before = step.result.error_message;
-        const after = sanitizeErrorMessage(before);
-        if (after !== before) sanitizedCount++;
-        step.result.error_message = after;
-      }
-    }
   }
 }
 
 fs.writeFileSync(inputPath, JSON.stringify(report, null, 2), 'utf8');
 
 console.log(
-  `OK: injected @${execKey} and @${testKey} into ${taggedCount} scenario(s), ` +
-    `sanitized ${sanitizedCount} error_message(s) -> ${inputPath}`
+  `OK: injected @${execKey} and @${testKey} into ${taggedCount} scenario(s) -> ${inputPath}`
 );

@@ -4,4 +4,3 @@ reports/cucumber-report.json
 reports/html-report/
 response.json
 *.log
-.DS_Store

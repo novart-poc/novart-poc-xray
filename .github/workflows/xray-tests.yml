@@ -6,7 +6,7 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  test-and-import-xray:
+  test-and-import:
     runs-on: ubuntu-latest
     env:
       JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
@@ -23,7 +23,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -46,11 +46,13 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
-      # Every run imports the feature file fresh. This creates a brand new
-      # Test issue in Xray and links it to Story KAN-5 automatically via
-      # the @KAN-5 tag in the feature file. The response gives us the new
-      # test's key so we can tag the execution result with it later.
-      - name: Import feature file (creates a new Test, linked to KAN-5)
+      # Every run imports the feature file as committed. Xray matches the
+      # Scenario by (file path + its "@id:..." tag). As long as that tag
+      # stays the same, this UPDATES the existing Test (and its execution
+      # history keeps accumulating against it). Bumping the "@id:..." tag
+      # in the feature file (e.g. v1 -> v2) is what makes Xray create a
+      # brand new Test here, linked to Story KAN-5 via the @KAN-5 tag.
+      - name: Import feature file (creates/updates the Test, linked to KAN-5)
         id: import_feature
         run: |
           RESPONSE=$(curl -s -X POST \
@@ -60,10 +62,10 @@ jobs:
           echo "Feature import response: $RESPONSE"
           TEST_KEY=$(echo "$RESPONSE" | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
           if [ -z "$TEST_KEY" ]; then
-            echo "Could not determine the created Test key from the response above."
+            echo "Could not determine the Test key from the response above."
             exit 1
           fi
-          echo "Created Test: $TEST_KEY (linked to KAN-5)"
+          echo "Test for this run: $TEST_KEY (linked to KAN-5)"
           echo "test_key=$TEST_KEY" >> "$GITHUB_OUTPUT"
 
       - name: Create Test Execution issue in Jira
@@ -96,7 +98,7 @@ jobs:
       - name: Generate HTML report
         run: npm run report:html
 
-      - name: Inject Xray tags and sanitize error_message
+      - name: Inject Xray tags
         env:
           XRAY_EXEC_KEY: ${{ steps.create_exec.outputs.exec_key }}
           XRAY_TEST_KEY: ${{ steps.import_feature.outputs.test_key }}
